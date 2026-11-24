@@ -1,0 +1,117 @@
+{
+  "file": "task_queue.py",
+  "language": "python",
+  "blocks": [
+    {
+      "start": 1,
+      "end": 9,
+      "summary_zh": "模块声明与依赖：全部来自标准库，零第三方依赖",
+      "summary_en": "Module docstring and imports — standard library only",
+      "lines": [
+        {"n": 1, "zh": "模块说明：基于工作线程、支持重试的进程内任务队列", "en": "Module docstring: in-process task queue with worker threads and retries"},
+        {"n": 3, "zh": "引入 `queue` → 线程安全的队列，这里用优先级队列实现延迟任务", "en": "Import `queue` → thread-safe queues; its PriorityQueue enables delayed tasks"},
+        {"n": 4, "zh": "引入 `threading` → 工作线程、互斥锁、停止信号", "en": "Import `threading` → worker threads, mutex, stop signal"},
+        {"n": 5, "zh": "引入 `time` → 用 `monotonic` 单调时钟算到期时间，不受系统改时影响", "en": "Import `time` → `monotonic` clock for due times, immune to system clock changes"},
+        {"n": 6, "zh": "引入 `traceback` → 任务异常时打印完整堆栈", "en": "Import `traceback` → print full stack traces on task failure"},
+        {"n": 7, "zh": "引入 `dataclass` / `field` → 自动生成 `Task` 的构造函数", "en": "Import `dataclass` / `field` → auto-generate Task's constructor"}
+      ]
+    },
+    {
+      "start": 10,
+      "end": 18,
+      "summary_zh": "Task 数据类：把一次函数调用和它的重试策略打包成一个对象",
+      "summary_en": "Task dataclass: one function call plus its retry policy in a single object",
+      "lines": [
+        {"n": 10, "zh": "装饰器 → 按下方字段注解自动生成 `__init__` 和 `repr`", "en": "Decorator → auto-generate `__init__` and `repr` from the annotated fields"},
+        {"n": 11, "zh": "定义 `Task` {", "en": "Define `Task` {"},
+        {"n": 12, "zh": "字段 `fn`：要执行的函数本体", "en": "Field `fn`: the callable to run"},
+        {"n": 13, "zh": "字段 `args`：位置参数，默认 `()` → 元组不可变，作默认值安全", "en": "Field `args`: positional args, default `()` → immutable, safe as a default"},
+        {"n": 14, "zh": "字段 `kwargs`：关键字参数，`default_factory` 每实例新建 dict → 避免共享可变默认值", "en": "Field `kwargs`: keyword args; `default_factory` builds a fresh dict per instance → no shared mutable default"},
+        {"n": 15, "zh": "字段 `retries_left`：剩余重试次数，默认 2，失败一次减一", "en": "Field `retries_left`: retries remaining (default 2), decremented per failure"},
+        {"n": 16, "zh": "字段 `delay`：延迟执行秒数，重试退避时用", "en": "Field `delay`: seconds to postpone execution, used for retry backoff"}
+      ]
+    },
+    {
+      "start": 19,
+      "end": 37,
+      "summary_zh": "TaskQueue 初始化：建优先级队列，启动一组守护工作线程",
+      "summary_en": "TaskQueue init: build a priority queue and start a pool of daemon workers",
+      "lines": [
+        {"n": 19, "zh": "定义 `TaskQueue` {", "en": "Define `TaskQueue` {"},
+        {"n": 20, "zh": "类说明：在一组守护工作线程上执行可调用对象", "en": "Class docstring: run callables on a pool of daemon workers"},
+        {"n": 22, "zh": "说明：失败任务按指数退避重试，", "en": "Doc: failed tasks retry with exponential backoff"},
+        {"n": 23, "zh": "说明：直到 `retries_left` 耗尽；队列刻意零依赖，", "en": "Doc: until `retries_left` hits zero; deliberately dependency-free"},
+        {"n": 24, "zh": "说明：可直接丢进任何项目使用", "en": "Doc: so it drops into any project"},
+        {"n": 25, "zh": "结束类说明文档字符串", "en": "End of the class docstring"},
+        {"n": 27, "zh": "构造函数：默认开 4 个工作线程 {", "en": "Constructor: spawn 4 workers by default {"},
+        {"n": 28, "zh": "创建优先级队列 → 按 `(到期时间, 序号)` 排序，最早到期先出队；读写自带锁", "en": "Create PriorityQueue → ordered by `(due time, seq)`, earliest due first; internally locked"},
+        {"n": 29, "zh": "`_workers` 置空列表 → 稍后存线程句柄", "en": "`_workers` = empty list → thread handles stored here"},
+        {"n": 30, "zh": "`_seq` 序号从 0 开始 → 同到期时间时稳定排序，也避免队列去比较 `Task` 对象", "en": "`_seq` starts at 0 → stable ordering for equal due times; also stops the queue comparing Task objects"},
+        {"n": 31, "zh": "创建互斥锁 → 保护 `_seq` 的并发自增", "en": "Create mutex → guards concurrent `_seq` increments"},
+        {"n": 32, "zh": "创建停止信号 `Event` → 兼作可中断的等待器", "en": "Create stop `Event` → doubles as an interruptible wait"},
+        {"n": 33, "zh": "循环 `i` 从 0 到 `workers-1`：逐个建线程 {", "en": "Loop `i` over 0..workers-1: create each thread {"},
+        {"n": 34, "zh": "新建线程：跑 `_run` 循环；`daemon=True` → 主进程退出时直接杀死，不阻碍退出", "en": "New thread running `_run`; `daemon=True` → killed on process exit, never blocks it"},
+        {"n": 35, "zh": "启动线程 → 随即阻塞在队列 `get` 上等任务", "en": "Start thread → it immediately blocks on queue `get` waiting for work"},
+        {"n": 36, "zh": "线程句柄入 `_workers` → 供 `shutdown` 回收", "en": "Append handle to `_workers` → for shutdown to join"}
+      ]
+    },
+    {
+      "start": 38,
+      "end": 45,
+      "summary_zh": "submit：任务包装后按「到期时间 + 序号」入队，调用方不等执行",
+      "summary_en": "submit: enqueue the task by (due time, seq) and return immediately",
+      "lines": [
+        {"n": 38, "zh": "定义 `submit(fn, *args, retries, delay, **kwargs)` { → `retries`/`delay` 归队列，其余透传给 `fn`", "en": "Define `submit(fn, *args, retries, delay, **kwargs)` { → retries/delay belong to the queue, the rest pass through to `fn`"},
+        {"n": 39, "zh": "说明：调度 `fn(*args, **kwargs)`，立即返回", "en": "Doc: schedule `fn(*args, **kwargs)`, return at once"},
+        {"n": 40, "zh": "进入锁保护区 {", "en": "Enter the locked section {"},
+        {"n": 41, "zh": "`_seq` +1", "en": "Increment `_seq`"},
+        {"n": 42, "zh": "取出本任务序号存入 `seq`", "en": "Copy this task's sequence into `seq`"},
+        {"n": 43, "zh": "打包成 `Task`：函数 + 参数 + 剩余重试 + 延迟", "en": "Pack a `Task`: function + args + retries left + delay"},
+        {"n": 44, "zh": "入队 `(now + delay, seq, task)` → 到期时间 = 当前单调时钟 + 延迟", "en": "Enqueue `(now + delay, seq, task)` → due time = monotonic now + delay"}
+      ]
+    },
+    {
+      "start": 46,
+      "end": 66,
+      "summary_zh": "工作线程主循环：取任务 → 等到期 → 执行；失败则递减次数、指数退避后重新入队",
+      "summary_en": "Worker loop: fetch → wait until due → run; on failure decrement retries and re-enqueue with backoff",
+      "lines": [
+        {"n": 46, "zh": "定义 `_run`：每个工作线程都在跑这个循环 {", "en": "Define `_run`: every worker thread runs this loop {"},
+        {"n": 47, "zh": "循环直到 停止信号置位 {", "en": "Loop until the stop flag is set {"},
+        {"n": 48, "zh": "尝试取任务 {", "en": "Try to fetch a task {"},
+        {"n": 49, "zh": "取最早到期任务，最多等 0.2 秒 → 带超时才能定期检查停止信号，否则 `shutdown` 叫不醒线程", "en": "Fetch earliest-due task with 0.2s timeout → the timeout lets threads re-check the stop flag; otherwise shutdown couldn't wake them"},
+        {"n": 50, "zh": "若 超时无任务（`Empty`）→ {", "en": "If nothing arrived in 0.2s (`Empty`) → {"},
+        {"n": 51, "zh": "跳回循环开头重新检查", "en": "Loop back and re-check"},
+        {"n": 52, "zh": "`wait` = 到期时间 − 当前时间", "en": "`wait` = due time − now"},
+        {"n": 53, "zh": "若 尚未到期 {", "en": "If not yet due {"},
+        {"n": 54, "zh": "睡到到期；停止信号可立刻唤醒 → 比 `time.sleep` 响应快", "en": "Sleep until due; the stop event wakes it instantly → faster shutdown than time.sleep"},
+        {"n": 55, "zh": "尝试执行任务 {", "en": "Try to run the task {"},
+        {"n": 56, "zh": "展开参数，真正调用 `task.fn`", "en": "Unpack args and actually invoke `task.fn`"},
+        {"n": 57, "zh": "若 任务抛任何异常 → {", "en": "If the task raises anything → {"},
+        {"n": 58, "zh": "打印完整异常堆栈 → 错误不被静默吞掉", "en": "Print the full traceback → errors never silently swallowed"},
+        {"n": 59, "zh": "若 剩余重试 > 0 {", "en": "If retries remain {"},
+        {"n": 60, "zh": "剩余重试 −1", "en": "Decrement retries left"},
+        {"n": 61, "zh": "`backoff` = `2^(3−剩余次数)` 秒，封顶 30 → 失败越多等越久，故障时保护下游", "en": "`backoff` = `2^(3−retries_left)` s, capped at 30 → longer waits per failure, protecting downstream"},
+        {"n": 62, "zh": "重新入队同一函数（剩余次数已递减，", "en": "Re-enqueue the same function (retry count decremented,"},
+        {"n": 63, "zh": "延迟 `backoff` 秒后再执行）", "en": "delayed by `backoff` seconds)"},
+        {"n": 64, "zh": "`finally`：无论成功、失败还是重试都执行 {", "en": "`finally`: runs on success, failure, or retry {"},
+        {"n": 65, "zh": "标记任务完成 `task_done` → 漏掉它 `join()` 会永远阻塞", "en": "Mark `task_done` → missing it would block `join()` forever"}
+      ]
+    },
+    {
+      "start": 67,
+      "end": 74,
+      "summary_zh": "生命周期收尾：join 等队列清空，shutdown 发停止信号并回收线程",
+      "summary_en": "Lifecycle: join waits for the queue to drain; shutdown signals stop and joins threads",
+      "lines": [
+        {"n": 67, "zh": "定义 `join` {", "en": "Define `join` {"},
+        {"n": 68, "zh": "说明：阻塞直到所有排队任务执行完", "en": "Doc: block until every queued task has finished"},
+        {"n": 69, "zh": "阻塞等待 → 每个入队任务都收到 `task_done` 才返回", "en": "Block → returns only when every enqueued task got `task_done`"},
+        {"n": 71, "zh": "定义 `shutdown` {", "en": "Define `shutdown` {"},
+        {"n": 72, "zh": "停止信号置位 → 唤醒所有在 `wait` 或超时循环里的线程", "en": "Set the stop flag → wakes all threads in `wait` or the timeout loop"},
+        {"n": 73, "zh": "遍历每个工作线程 {", "en": "For each worker thread {"},
+        {"n": 74, "zh": "等它退出，最多 1 秒 → 守护线程超时也不影响进程结束", "en": "Join with 1s cap → daemon threads won't block process exit anyway"}
+      ]
+    }
+  ]
+}

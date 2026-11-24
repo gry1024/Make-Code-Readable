@@ -1,0 +1,9 @@
+{
+  "repo_zh": "迷你演示项目：一个 Python 线程池任务队列（支持延迟与指数退避重试）和一个浏览器端 JS 工具库（防抖、API 客户端、轮询），用于展示 Make Code Readable 的双栏阅读效果。",
+  "repo_en": "A tiny demo project: a Python thread-pool task queue (delayed tasks, exponential-backoff retries) and browser JS helpers (debounce, API client, polling), showcasing Make Code Readable's dual-pane reader.",
+  "dirs": {},
+  "files": {
+    "task_queue.py": {"zh": "线程池任务队列：优先级队列调度，失败指数退避重试", "en": "Thread-pool task queue: priority scheduling with backoff retries"},
+    "frontend.js": {"zh": "浏览器工具：debounce 防抖、带超时重试的 API 客户端、轮询", "en": "Browser helpers: debounce, timeout/retry API client, polling"}
+  }
+}

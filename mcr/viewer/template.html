@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__MCR_TITLE__ · Make Code Readable</title>
+<style>/*__MCR_CSS__*/</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <button id="sidebar-toggle" title="Toggle file tree">☰</button>
+    <div id="brand">Make Code Readable</div>
+    <div id="crumb"></div>
+    <div class="spacer"></div>
+    <button id="lang-toggle" title="Switch language">EN</button>
+    <button id="font-dec" title="Decrease font size">A−</button>
+    <button id="font-inc" title="Increase font size">A+</button>
+  </header>
+  <div id="main">
+    <nav id="sidebar">
+      <div id="repo-name"></div>
+      <button id="overview-btn">▦ <span id="overview-label">仓库总览</span></button>
+      <div id="file-tree"></div>
+    </nav>
+    <div id="content">
+      <div id="file-note"></div>
+      <div id="overview" class="hidden"></div>
+      <div id="reading"></div>
+    </div>
+  </div>
+</div>
+
+<div id="ask-panel" class="hidden">
+  <div id="ask-header">
+    <span>✦ <span class="ask-title">代码解读</span></span>
+    <button id="ask-close">×</button>
+  </div>
+  <div id="ask-context"></div>
+  <div id="ask-messages"></div>
+  <div id="ask-input-row">
+    <textarea id="ask-input" rows="2" placeholder=""></textarea>
+    <button id="ask-send">➤</button>
+  </div>
+</div>
+
+<script>/*__MCR_HLJS__*/</script>
+<script>window.MCR_DATA = "__MCR_DATA__";</script>
+<script>/*__MCR_APP__*/</script>
+</body>
+</html>
