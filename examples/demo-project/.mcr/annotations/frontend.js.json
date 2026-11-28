@@ -1,103 +1,176 @@
 {
   "file": "frontend.js",
   "language": "javascript",
+  "note_zh": "三个可独立使用的浏览器工具控制操作发生的时机。`debounce` 合并密集事件，`ApiClient` 管理一次请求的重试预算，`poll` 等一次操作结束再开始计时。",
+  "note_en": "Three independent browser helpers control when work happens. debounce coalesces bursts, ApiClient budgets a request’s retries, and poll starts its interval after an operation settles.",
+  "symbols": [
+    {
+      "name": "debounce",
+      "start": 3,
+      "end": 9,
+      "zh": "只保留最后一次事件",
+      "en": "Coalesces events into one trailing call"
+    },
+    {
+      "name": "ApiClient",
+      "start": 11,
+      "end": 48,
+      "zh": "管理 HTTP 请求策略",
+      "en": "Holds the HTTP policy"
+    },
+    {
+      "name": "ApiClient.constructor",
+      "start": 12,
+      "end": 16,
+      "zh": "保存端点与默认预算",
+      "en": "Stores the endpoint and budgets"
+    },
+    {
+      "name": "ApiClient.request",
+      "start": 18,
+      "end": 39,
+      "zh": "执行请求并控制重试与超时",
+      "en": "Executes attempts under one deadline"
+    },
+    {
+      "name": "ApiClient.get",
+      "start": 41,
+      "end": 43,
+      "zh": "读取资源",
+      "en": "Reads a resource"
+    },
+    {
+      "name": "ApiClient.post",
+      "start": 45,
+      "end": 47,
+      "zh": "发送 JSON",
+      "en": "Sends JSON"
+    },
+    {
+      "name": "poll",
+      "start": 50,
+      "end": 64,
+      "zh": "串行轮询，返回停止函数",
+      "en": "Polls serially and returns a stop function"
+    }
+  ],
   "blocks": [
     {
       "start": 1,
-      "end": 9,
-      "summary_zh": "debounce 防抖：连续调用只执行最后一次，适合搜索输入等高频场景",
-      "summary_en": "debounce: collapse bursts of calls into the last one — for search inputs and other high-frequency events",
+      "end": 10,
+      "summary_zh": "只执行一串事件中的最后一次调用",
+      "summary_en": "Keep the last call in a burst",
       "lines": [
-        {"n": 1, "zh": "模块说明：防抖、API 客户端、轮询订阅三个浏览器小工具", "en": "Module comment: debounce, API client, and polling helpers"},
-        {"n": 3, "zh": "导出 `debounce(fn, wait=300)`：包装 `fn`，静默 `wait` 毫秒后才执行 {", "en": "Export `debounce(fn, wait=300)`: wrap `fn` to run only after `wait` ms of silence {"},
-        {"n": 4, "zh": "`timer` 存在闭包里 → 被返回的函数共享，每次调用都能取消上一次", "en": "`timer` lives in the closure → shared by the returned function so each call cancels the previous one"},
-        {"n": 5, "zh": "返回包装后的新函数 {", "en": "Return the wrapped function {"},
-        {"n": 6, "zh": "先清除未触发的定时器 → 只要还在连续调用，执行就被不断推迟（防抖核心）", "en": "Clear the pending timer → while calls keep coming, execution keeps being postponed (the debounce core)"},
-        {"n": 7, "zh": "重新计时 `wait` 毫秒 → 到点以原 `this` 和参数执行 `fn`", "en": "Restart a `wait` ms timer → on fire, invoke `fn` with the original `this` and args"},
-        {"n": 8, "zh": "} 结束包装函数", "en": "} end of wrapper"},
-        {"n": 9, "zh": "} 结束 `debounce`", "en": "} end of `debounce`"}
+        {
+          "n": 1,
+          "end": 5,
+          "zh": "每次创建防抖函数都会得到独立的计时器；同一个包装函数处理的后续事件共享它。",
+          "en": "Each wrapper owns its timer. All later events handled by that wrapper share it."
+        },
+        {
+          "n": 6,
+          "end": 9,
+          "zh": "后来的调用撤销前一次预约。经过一段安静时间，最后调用的参数和接收者才被交给 fn。",
+          "en": "A new call cancels its predecessor. After a quiet interval, fn receives the last call’s arguments and receiver."
+        }
       ]
     },
     {
-      "start": 10,
-      "end": 16,
-      "summary_zh": "ApiClient 构造：规范化 baseUrl，保存超时与重试配置",
-      "summary_en": "ApiClient constructor: normalize baseUrl, store timeout and retry settings",
+      "start": 11,
+      "end": 17,
+      "summary_zh": "同一客户端共享基础地址和策略",
+      "summary_en": "Share endpoint and policy across calls",
       "lines": [
-        {"n": 11, "zh": "导出类 `ApiClient` {", "en": "Export class `ApiClient` {"},
-        {"n": 12, "zh": "构造函数：第二参数可整体省略，`timeout` 默认 8 秒、`retries` 默认 2 {", "en": "Constructor: options object optional; `timeout` defaults to 8s, `retries` to 2 {"},
-        {"n": 13, "zh": "`baseUrl` 去掉末尾斜杠 → 避免拼 path 出现双斜杠", "en": "Strip trailing slash from `baseUrl` → avoids double slashes when joining paths"},
-        {"n": 14, "zh": "保存超时时长", "en": "Store the timeout"},
-        {"n": 15, "zh": "保存重试次数", "en": "Store the retry count"},
-        {"n": 16, "zh": "} 结束构造函数", "en": "} end of constructor"}
+        {
+          "n": 11,
+          "end": 16,
+          "zh": "移除地址末尾的斜杠，并为每次 request 保存超时和最大重试次数。",
+          "en": "Strip the trailing slash and store the timeout and retry budget used by each request."
+        }
       ]
     },
     {
-      "start": 17,
+      "start": 18,
       "end": 40,
-      "summary_zh": "request 主流程：AbortController 管超时，失败按指数退避重试，最后统一抛错",
-      "summary_en": "request core: AbortController enforces timeout, failures retry with exponential backoff, last error is thrown",
+      "summary_zh": "一次逻辑请求可包含多次网络尝试",
+      "summary_en": "One logical request may span several attempts",
       "lines": [
-        {"n": 18, "zh": "定义异步方法 `request(path, options)` {", "en": "Define async `request(path, options)` {"},
-        {"n": 19, "zh": "新建 `AbortController` → 超时后用它中断 fetch", "en": "New `AbortController` → used to abort fetch on timeout"},
-        {"n": 20, "zh": "启动超时定时器 → 到点调用 `abort()`，挂起的 fetch 以 `AbortError` 失败", "en": "Start timeout timer → on fire `abort()` rejects the pending fetch with `AbortError`"},
-        {"n": 21, "zh": "`lastError` 先留空 → 记录最后一次错误", "en": "`lastError` starts empty → tracks the most recent failure"},
-        {"n": 22, "zh": "循环 `attempt` 从 0 到 `retries`（含）→ 首次尝试 + 若干次重试 {", "en": "Loop `attempt` from 0 through `retries` → initial try plus retries {"},
-        {"n": 23, "zh": "尝试发请求 {", "en": "Try the request {"},
-        {"n": 24, "zh": "发起 `fetch(baseUrl + path)` {", "en": "Call `fetch(baseUrl + path)` {"},
-        {"n": 25, "zh": "展开调用方的 `options`（方法、body 等）", "en": "Spread caller `options` (method, body, etc.)"},
-        {"n": 26, "zh": "挂上 `signal` → 超时机制由此生效", "en": "Attach the `signal` → this is what makes the timeout work"},
-        {"n": 27, "zh": "合并请求头：默认 JSON，调用方可覆盖", "en": "Merge headers: JSON by default, caller can override"},
-        {"n": 28, "zh": "} 结束 fetch 参数", "en": "} end of fetch options"},
-        {"n": 29, "zh": "若 响应非 2xx → 抛出 `HTTP 状态码` 错误（fetch 只对网络错误 reject，必须手动检查）", "en": "If response not ok → throw `HTTP status` error (fetch only rejects on network failure, so check manually)"},
-        {"n": 30, "zh": "解析 JSON 并直接返回 → 成功即跳出整个重试循环", "en": "Parse and return JSON → success exits the retry loop entirely"},
-        {"n": 31, "zh": "捕获本次失败 → {", "en": "Catch this attempt's failure → {"},
-        {"n": 32, "zh": "记录为 `lastError`", "en": "Store it as `lastError`"},
-        {"n": 33, "zh": "若 是超时 `AbortError` → 直接跳出，不再重试（后端慢时重试只会雪上加霜）", "en": "If it's a timeout `AbortError` → break without retrying (retrying a slow backend makes things worse)"},
-        {"n": 34, "zh": "等待 `2^attempt × 200` 毫秒后再试 → 指数退避", "en": "Wait `2^attempt × 200` ms before the next try → exponential backoff"},
-        {"n": 35, "zh": "} 结束 catch", "en": "} end of catch"},
-        {"n": 36, "zh": "} 结束重试循环", "en": "} end of retry loop"},
-        {"n": 37, "zh": "清除超时定时器 → 请求已结束，不再触发无意义的 `abort`", "en": "Clear the timeout → no pointless `abort` after the request settled"},
-        {"n": 38, "zh": "抛出 `lastError` → 所有尝试失败，错误交给调用方", "en": "Throw `lastError` → all attempts failed, propagate to the caller"},
-        {"n": 39, "zh": "} 结束 `request`", "en": "} end of `request`"}
+        {
+          "n": 18,
+          "end": 21,
+          "zh": "在循环外启动中止时钟，所有尝试共用同一个截止时间。",
+          "en": "Start the abort clock outside the loop so every attempt shares a deadline."
+        },
+        {
+          "n": 22,
+          "end": 28,
+          "zh": "首次尝试加上允许的重试次数。调用方的请求头可覆盖 JSON 默认值，每次 fetch 都接到同一个中止信号。",
+          "en": "Allow the initial attempt plus the retry budget. Caller headers override JSON defaults, and every fetch gets the same abort signal."
+        },
+        {
+          "n": 29,
+          "end": 30,
+          "zh": "将非成功状态视为错误，成功时直接返回 JSON 解析的 Promise。这个早返回也绕过了下方清理计时器的语句。",
+          "en": "Reject unsuccessful HTTP statuses. The success path returns the JSON promise immediately and skips the timer cleanup below."
+        },
+        {
+          "n": 31,
+          "end": 36,
+          "zh": "保留最近的错误以便最终抛出。超时直接结束循环；其他失败先等待，等待时间从 200 毫秒逐次翻倍。",
+          "en": "Keep the latest failure. An abort exits the loop, while other failures wait for a delay that doubles from 200 milliseconds."
+        },
+        {
+          "n": 37,
+          "end": 39,
+          "zh": "耗尽尝试或收到中止信号后，清理计时器并把最后的错误交还调用方。",
+          "en": "Once retries are exhausted or aborted, clear the timer and propagate the final error."
+        }
       ]
     },
     {
       "start": 41,
-      "end": 48,
-      "summary_zh": "get/post 便捷封装：复用 request，post 自动序列化 JSON",
-      "summary_en": "get/post shorthands: thin wrappers over request; post serializes the body as JSON",
+      "end": 49,
+      "summary_zh": "把常用 HTTP 方法交给同一请求策略",
+      "summary_en": "Route common HTTP methods through one policy",
       "lines": [
-        {"n": 41, "zh": "定义 `get(path)` {", "en": "Define `get(path)` {"},
-        {"n": 42, "zh": "直接转发给 `request`", "en": "Forward straight to `request`"},
-        {"n": 43, "zh": "} 结束 `get`", "en": "} end of `get`"},
-        {"n": 45, "zh": "定义 `post(path, body)` {", "en": "Define `post(path, body)` {"},
-        {"n": 46, "zh": "转发给 `request`：方法 POST，`body` 先 `JSON.stringify`（与默认 JSON 请求头呼应）", "en": "Forward to `request`: method POST, body `JSON.stringify`'d (matching the default JSON header)"},
-        {"n": 47, "zh": "} 结束 `post`", "en": "} end of `post`"},
-        {"n": 48, "zh": "} 结束 `ApiClient` 类", "en": "} end of `ApiClient`"}
+        {
+          "n": 41,
+          "end": 43,
+          "zh": "读取操作沿用 fetch 默认的 GET 方法。",
+          "en": "Reads use the default GET method."
+        },
+        {
+          "n": 45,
+          "end": 48,
+          "zh": "写入操作将对象编码为 JSON，并复用超时、重试和状态检查。",
+          "en": "Writes serialize the body as JSON and reuse timeout, retry and status handling."
+        }
       ]
     },
     {
-      "start": 49,
+      "start": 50,
       "end": 64,
-      "summary_zh": "poll 轮询：每轮执行任务 → 等一个间隔 → 再检查停止条件；返回可随时调用的停止函数",
-      "summary_en": "poll: run task → wait an interval → re-check stop conditions; returns a stop function callable anytime",
+      "summary_zh": "一次轮询完成后才安排下一次",
+      "summary_en": "Space polling attempts after completion",
       "lines": [
-        {"n": 50, "zh": "导出 `poll(fn, interval, shouldStop)`：`fn` 每轮执行，`shouldStop` 由调用方给终止条件 {", "en": "Export `poll(fn, interval, shouldStop)`: `fn` runs per round; `shouldStop` is the caller's termination condition {"},
-        {"n": 51, "zh": "内部停止标志 `stopped` 置假 → 与 `shouldStop` 构成两种停止途径", "en": "Internal `stopped` flag starts false → a second stop path alongside `shouldStop`"},
-        {"n": 52, "zh": "定义异步 `tick` 循环 {", "en": "Define async `tick` loop {"},
-        {"n": 53, "zh": "循环条件：未内部停止 且 外部条件未满足 {", "en": "Loop while not stopped internally and externally {"},
-        {"n": 54, "zh": "尝试执行本轮 {", "en": "Try this round {"},
-        {"n": 55, "zh": "等待 `fn()` 执行完", "en": "Await `fn()` to finish"},
-        {"n": 56, "zh": "若 本轮失败 → {", "en": "If the round fails → {"},
-        {"n": 57, "zh": "只警告不中断 → 轮询场景要的是「下轮再试」而非整体崩溃", "en": "Warn only, don't break → polling prefers 'retry next round' over crashing"},
-        {"n": 58, "zh": "} 结束 catch", "en": "} end of catch"},
-        {"n": 59, "zh": "等 `interval` 毫秒 → 非阻塞，不卡页面其他逻辑", "en": "Wait `interval` ms → non-blocking, the page stays responsive"},
-        {"n": 60, "zh": "} 结束 while", "en": "} end of while"},
-        {"n": 61, "zh": "} 结束 `tick`", "en": "} end of `tick`"},
-        {"n": 62, "zh": "启动 `tick`（故意不 `await`）→ 后台自行轮询，`poll` 立即返回", "en": "Start `tick` (deliberately not awaited) → polls in background, `poll` returns at once"},
-        {"n": 63, "zh": "返回停止函数：调用它 → `stopped` 置真，下一轮循环退出", "en": "Return a stop function: calling it sets `stopped`, ending the next loop check"},
-        {"n": 64, "zh": "} 结束 `poll`", "en": "} end of `poll`"}
+        {
+          "n": 50,
+          "end": 55,
+          "zh": "停止标记和外部谓词共同决定是否继续。等待 fn 结束可避免同一次订阅发出重叠请求。",
+          "en": "A local flag and an external predicate decide whether to continue. Awaiting fn prevents overlapping work in this subscription."
+        },
+        {
+          "n": 56,
+          "end": 61,
+          "zh": "某一轮出错后仍可继续；每轮结束后才开始计算间隔。",
+          "en": "A failed iteration is logged and polling can continue. The interval begins after each attempt settles."
+        },
+        {
+          "n": 62,
+          "end": 64,
+          "zh": "立即开始第一轮，并把停止开关返回给调用方；进行中的一轮会自然结束。",
+          "en": "Start immediately and return a stop switch. An in-flight iteration runs to completion."
+        }
       ]
     }
   ]

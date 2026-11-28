@@ -1,9 +1,117 @@
 {
-  "repo_zh": "迷你演示项目：一个 Python 线程池任务队列（支持延迟与指数退避重试）和一个浏览器端 JS 工具库（防抖、API 客户端、轮询），用于展示 Make Code Readable 的双栏阅读效果。",
-  "repo_en": "A tiny demo project: a Python thread-pool task queue (delayed tasks, exponential-backoff retries) and browser JS helpers (debounce, API client, polling), showcasing Make Code Readable's dual-pane reader.",
+  "repo_zh": "一次提交可以触发多次执行。沿一件任务从入队到重试的路径，观察线程之间传递了哪些信息。最后比较独立的浏览器工具如何为请求设置时间预算。",
+  "repo_en": "One submission can trigger several attempts. Follow a job from enqueue to retry, then compare the independent browser client’s timeout policy.",
   "dirs": {},
   "files": {
-    "task_queue.py": {"zh": "线程池任务队列：优先级队列调度，失败指数退避重试", "en": "Thread-pool task queue: priority scheduling with backoff retries"},
-    "frontend.js": {"zh": "浏览器工具：debounce 防抖、带超时重试的 API 客户端、轮询", "en": "Browser helpers: debounce, timeout/retry API client, polling"}
-  }
+    "task_queue.py": {
+      "zh": "线程池任务队列：优先级队列调度，失败指数退避重试",
+      "en": "Thread-pool task queue: priority scheduling with backoff retries"
+    },
+    "frontend.js": {
+      "zh": "浏览器工具：debounce 防抖、带超时重试的 API 客户端、轮询",
+      "en": "Browser helpers: debounce, timeout/retry API client, polling"
+    }
+  },
+  "chapters": [
+    {
+      "id": "submit",
+      "title": {
+        "zh": "任务如何排队？",
+        "en": "How does a job enter the queue?"
+      },
+      "body": {
+        "zh": "假设两个线程同时提交到期时间相同的任务。队列先比较到期时间，再比较锁内分配的序号，因此无需比较两个函数对象。调用方在任务入队后就可以继续工作。",
+        "en": "Suppose two threads submit jobs with the same deadline. The tie-breaking sequence number is assigned under a lock, so the queue never has to compare callable objects. The caller can proceed as soon as the job is queued."
+      },
+      "refs": [
+        {
+          "file": "task_queue.py",
+          "start": 38,
+          "end": 44,
+          "zh": "看队列条目的三个字段",
+          "en": "Inspect the three fields of a queue entry"
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "title": {
+        "zh": "谁负责执行？",
+        "en": "Who actually runs the job?"
+      },
+      "body": {
+        "zh": "工作线程取出最早到期的条目。若时机未到，这个线程持有任务并等待；真正调用函数时，它从任务对象恢复原始参数。",
+        "en": "A worker takes the earliest queued entry. If it is early, that worker holds the job while waiting. Once due, it invokes the callable with the original arguments."
+      },
+      "refs": [
+        {
+          "file": "task_queue.py",
+          "start": 46,
+          "end": 56,
+          "zh": "从队列取出并执行",
+          "en": "Trace dequeue to invocation"
+        }
+      ]
+    },
+    {
+      "id": "retry",
+      "title": {
+        "zh": "失败后如何重试？",
+        "en": "What happens after a failure?"
+      },
+      "body": {
+        "zh": "设初始重试次数为 2。第一次失败后还剩 1 次计数，代码计算出 4 秒延迟并重新入队。新的队列条目有自己的完成计数，旧条目在 finally 中结清。",
+        "en": "With a retry budget of two, the first failure reduces the counter to one and schedules a fresh entry four seconds later. That entry has its own completion count. The finally block accounts for the attempt that just ended."
+      },
+      "refs": [
+        {
+          "file": "task_queue.py",
+          "start": 57,
+          "end": 65,
+          "zh": "追踪剩余次数与重新入队",
+          "en": "Follow the retry budget and resubmission"
+        }
+      ]
+    },
+    {
+      "id": "client",
+      "title": {
+        "zh": "浏览器怎样限制等待？",
+        "en": "How does the browser bound waiting?"
+      },
+      "body": {
+        "zh": "浏览器工具独立运行。一次 request 的所有尝试共用一个中止信号和计时器；重试等待也消耗这份时间预算。对照工作线程，每次重新入队都会得到新的到期时间。",
+        "en": "The browser helper runs independently. Every attempt within one request shares an abort signal and a timer, so backoff consumes the same deadline. The worker queue, by contrast, assigns each resubmission its own due time."
+      },
+      "refs": [
+        {
+          "file": "frontend.js",
+          "start": 18,
+          "end": 35,
+          "zh": "定位共享的请求期限",
+          "en": "Locate the shared request deadline"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "submit",
+      "to": "worker",
+      "zh": "传递到期时间、序号和任务",
+      "en": "Passes deadline, sequence and task"
+    },
+    {
+      "from": "worker",
+      "to": "retry",
+      "zh": "调用抛出异常",
+      "en": "Invocation raises"
+    },
+    {
+      "from": "retry",
+      "to": "submit",
+      "zh": "带延迟重新提交",
+      "en": "Resubmits with a delay"
+    }
+  ]
 }

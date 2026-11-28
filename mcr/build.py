@@ -4,12 +4,14 @@ Usage: python -m mcr.build <repo_path> --annotations <dir> --out reader.html
 """
 
 import argparse
+import base64
 import datetime
 import json
 import os
 import sys
 
 from .schema import validate_file
+from .tutorial import prepare_guides
 
 VIEWER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer")
 
@@ -55,6 +57,7 @@ def load_payload(repo_path: str, ann_dir: str):
             "note_zh": ann.get("note_zh", ""),
             "note_en": ann.get("note_en", ""),
             "code": code,
+            "symbols": ann.get("symbols", []),
             "blocks": ann["blocks"],
         })
     if errors:
@@ -96,6 +99,7 @@ def load_payload(repo_path: str, ann_dir: str):
         with open(structure_path, encoding="utf-8") as f:
             structure = json.load(f)
 
+    prepare_guides(files, structure)
     files.sort(key=lambda f: f["path"])
     return {
         "repo": os.path.basename(repo_path.rstrip(os.sep)) or repo_path,
@@ -109,7 +113,11 @@ def load_payload(repo_path: str, ann_dir: str):
 def render(payload: dict) -> str:
     template = read_text(os.path.join(VIEWER_DIR, "template.html"))
     css = read_text(os.path.join(VIEWER_DIR, "style.css"))
+    with open(os.path.join(VIEWER_DIR, "vendor", "seti.woff"), "rb") as font:
+        css = css.replace("__MCR_SETI__", base64.b64encode(font.read()).decode("ascii"))
+    css += "\n/* Seti UI font\n" + read_text(os.path.join(VIEWER_DIR, "vendor", "seti-LICENSE.txt")) + "*/"
     js = read_text(os.path.join(VIEWER_DIR, "app.js"))
+    js = js.replace("/*__MCR_GUIDE__*/", read_text(os.path.join(VIEWER_DIR, "guide.js")))
     hljs = read_text(os.path.join(VIEWER_DIR, "vendor", "highlight.min.js"))
     data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
     html = template

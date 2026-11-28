@@ -72,12 +72,17 @@ def validate_file(ann_path: str, repo_path: str) -> list:
                 if k not in ln:
                     errors.append(f"{lwhere}: missing key '{k}'")
             n = ln.get("n")
-            if not isinstance(n, int) or not (start <= n <= end):
-                errors.append(f"{lwhere}: line number {n} outside block range {start}-{end}")
-            elif n in seen:
-                errors.append(f"{lwhere}: duplicate line number {n}")
-            else:
-                seen.add(n)
+            last = ln.get("end", n)
+            if type(n) is not int or type(last) is not int or not start <= n <= last <= end:
+                errors.append(f"{lwhere}: invalid explanation range {n}-{last} in {start}-{end}")
+                continue
+            span = range(n, last + 1)
+            if seen.intersection(span):
+                errors.append(f"{lwhere}: overlapping explanation at {n}-{last}")
+            seen.update(span)
+            for lang in ("zh", "en"):
+                if not isinstance(ln.get(lang), str) or not ln[lang].strip():
+                    errors.append(f"{lwhere}: missing {lang} explanation")
 
     if total is not None and blocks:
         covered = []
@@ -99,8 +104,10 @@ def validate_file(ann_path: str, repo_path: str) -> list:
         explained = set()
         for b in blocks:
             for ln in b.get("lines", []):
-                if isinstance(ln.get("n"), int):
-                    explained.add(ln["n"])
+                first = ln.get("n")
+                last = ln.get("end", first)
+                if type(first) is int and type(last) is int and 1 <= first <= last <= total:
+                    explained.update(range(first, last + 1))
         with open(src, encoding="utf-8", errors="replace") as f:
             src_lines = f.read().splitlines()
         missing = [i for i, text in enumerate(src_lines, 1)
@@ -110,7 +117,7 @@ def validate_file(ann_path: str, repo_path: str) -> list:
             more = f" … +{len(missing) - 12} more" if len(missing) > 12 else ""
             errors.append(
                 f"{ann_path}: {len(missing)} non-blank line(s) without explanation "
-                f"(one-to-one rule): {shown}{more}")
+                f"(uncovered source): {shown}{more}")
 
     return errors
 

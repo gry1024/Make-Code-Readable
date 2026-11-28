@@ -4,7 +4,7 @@
   var DATA = window.MCR_DATA;
   var state = {
     lang: localStorage.getItem("mcr.lang") || "zh",
-    fontSize: parseFloat(localStorage.getItem("mcr.fontSize") || "13"),
+    fontSize: parseFloat(localStorage.getItem("mcr.fontSize") || "14"),
     fileIndex: 0,
     serverAvailable: false,
     askContext: null,
@@ -12,7 +12,7 @@
     askSession: 0,
     busy: false,
     view: "reader",
-    collapsed: {}
+    collapsed: Object.create(null)
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -26,8 +26,8 @@
       noServer: "当前为离线 HTML，未连接本地服务。\n要使用划词提问，请在项目目录运行：\n\npython -m mcr.serve <repo> --annotations <dir>\n\n并设置环境变量 MCR_API_KEY（OpenAI 兼容接口）。",
       thinking: "正在解读选中代码…", error: "请求失败：",
       sendError: "发送失败，请重试。",
-      overview: "仓库总览", overviewCrumb: "仓库结构总览 · 点击文件跳转",
-      annotatedStats: "{a} / {b} 个源文件已生成逐行注释；带紫色标记的文件可直接跳转阅读",
+      overview: "仓库总览", overviewCrumb: "仓库导读",
+      annotatedStats: "{a} / {b} 个源文件附有双语讲解",
       noAnnotation: "该文件尚未生成注释，仅展示源代码。"
     },
     en: {
@@ -38,8 +38,8 @@
       noServer: "This is an offline HTML file with no local server attached.\nTo enable code questions, run:\n\npython -m mcr.serve <repo> --annotations <dir>\n\nand set MCR_API_KEY (OpenAI-compatible API).",
       thinking: "Explaining the selection…", error: "Request failed: ",
       sendError: "Failed to send. Please retry.",
-      overview: "Overview", overviewCrumb: "Repository structure · click a file to open",
-      annotatedStats: "{a} of {b} source files have line-by-line annotations; files marked in purple open the reader",
+      overview: "Overview", overviewCrumb: "Repository guide",
+      annotatedStats: "{a} of {b} source files have bilingual guides",
       noAnnotation: "No annotations for this file yet — showing source code only."
     }
   };
@@ -103,18 +103,20 @@
     localStorage.setItem("mcr.fontSize", String(state.fontSize));
   }
 
-  var fileIndexByPath = {};
+  var fileIndexByPath = Object.create(null);
   DATA.files.forEach(function (f, i) { fileIndexByPath[f.path] = i; });
 
+  /*__MCR_GUIDE__*/
+
   function buildNested(paths) {
-    var root = { dirs: {}, files: [] };
+    var root = { dirs: Object.create(null), files: [] };
     paths.forEach(function (p) {
       var parts = p.split("/");
       var node = root;
       for (var i = 0; i < parts.length - 1; i++) {
         var d = parts[i];
         if (!node.dirs[d]) {
-          node.dirs[d] = { dirs: {}, files: [], path: parts.slice(0, i + 1).join("/") };
+          node.dirs[d] = { dirs: Object.create(null), files: [], path: parts.slice(0, i + 1).join("/") };
         }
         node = node.dirs[d];
       }
@@ -122,6 +124,17 @@
     });
     return root;
   }
+
+  // Keep build artifacts out of the initial explorer while exposing the learning path.
+  const guidedDirs = new Set();
+  function parents(path) {
+    const parts = path.split("/");
+    return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join("/"));
+  }
+  DATA.files.filter(f => f.blocks.length).forEach(f => parents(f.path).forEach(p => guidedDirs.add(p)));
+  (DATA.tree || []).forEach(path => parents(path).forEach(p => {
+    if (!guidedDirs.has(p)) state.collapsed[p] = true;
+  }));
 
   function renderTree() {
     var tree = $("file-tree");
@@ -142,6 +155,7 @@
         arrow.textContent = collapsed ? "▸" : "▾";
         row.appendChild(arrow);
         row.appendChild(document.createTextNode(" " + name));
+        row.setAttribute("aria-expanded", String(!collapsed));
         row.onclick = function () {
           if (collapsed) delete state.collapsed[d.path]; else state.collapsed[d.path] = true;
           renderTree();
@@ -157,7 +171,12 @@
         if (state.view === "reader" && idx === state.fileIndex) btn.classList.add("active");
         if (idx === undefined) btn.classList.add("disabled");
         btn.style.paddingLeft = (26 + depth * 14) + "px";
-        btn.textContent = p.split("/").pop();
+        const base = p.split("/").pop();
+        const ext = base.includes(".") ? base.split(".").pop().toLowerCase() : "";
+        const icon = el("span", "file-icon");
+        icon.dataset.ext = ext;
+        icon.setAttribute("aria-hidden", "true");
+        btn.append(icon, document.createTextNode(base));
         btn.title = p;
         if (f && f.blocks.length) {
           var dot = document.createElement("span");
@@ -165,14 +184,35 @@
           dot.title = state.lang === "zh" ? "已生成注释" : "Annotated";
           btn.appendChild(dot);
         }
-        if (idx !== undefined) btn.onclick = function () { selectFile(idx); };
+        if (idx !== undefined) btn.onclick = function () { openPath(p); };
         container.appendChild(btn);
       });
     }
     walk(nested, tree, 0);
   }
 
+  function navigate(hash) {
+    if (hash !== location.hash) history.pushState(null, "", hash);
+    followLocation();
+  }
+
+  // Resolve internal links during the click so the visible selection and URL
+  // always agree. Modified clicks retain the browser's native tab behavior.
+  document.addEventListener("click", function (event) {
+    const a = event.target.closest("a[href^='#']");
+    if (!a || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+    event.preventDefault();
+    navigate(a.hash);
+  });
+
+  function openPath(path) {
+    const hash = "#" + new URLSearchParams({file:path});
+    navigate(hash);
+    if (matchMedia("(max-width: 900px)").matches) $("sidebar").classList.add("collapsed");
+  }
+
   function selectFile(i) {
+    parents(DATA.files[i].path).forEach(p => delete state.collapsed[p]);
     state.fileIndex = i;
     state.view = "reader";
     $("overview").classList.add("hidden");
@@ -218,6 +258,7 @@
     stats.textContent = t("annotatedStats").replace("{a}", annotated).replace("{b}", DATA.files.length);
     head.appendChild(stats);
     ov.appendChild(head);
+    renderTutorial(ov);
 
     var paths = (DATA.tree && DATA.tree.length) ? DATA.tree : DATA.files.map(function (f) { return f.path; });
     var nested = buildNested(paths);
@@ -263,25 +304,29 @@
         }
         if (idx !== undefined) {
           row.title = p;
-          row.onclick = function () { selectFile(idx); };
+          row.onclick = function () { openPath(p); };
         }
         list.appendChild(row);
       });
     }
     walk(nested, 0);
-    ov.appendChild(list);
+    const index = el("details", "file-index");
+    index.open = !chapters.length;
+    index.append(el("summary", "", caption("目录与文件职责", "Directory and file guide")), list);
+    ov.append(index);
   }
 
   function renderFile() {
     var f = DATA.files[state.fileIndex];
     if (!f) { $("reading").innerHTML = ""; return; }
-    $("crumb").textContent = f.path + "  ·  " + f.language;
+    $("crumb").replaceChildren();
+    if (chapters.length && params().has("chapter")) {
+      $("crumb").append(chapterLink(currentChapter(), currentChapter().title[state.lang]), "  ›  ");
+    }
+    $("crumb").append(f.path + "  ·  " + f.language);
     var note = $("file-note");
     var isRaw = !f.blocks.length;
-    var noteText = state.lang === "zh" ? f.note_zh : f.note_en;
-    if (isRaw) noteText = noteText || t("noAnnotation");
-    note.textContent = noteText || "";
-    note.classList.toggle("visible", !!noteText);
+    renderFileIntro(f, note);
 
     var rawLines = f.code.replace(/\t/g, "    ").split("\n");
     var codeLines = highlightLines(f.code.replace(/\t/g, "    "), f.language);
@@ -291,10 +336,10 @@
     var key = state.lang;
 
     var blocks = isRaw
-      ? [{ start: 1, end: rawLines.length, lines: [] }]
+      ? [{ start: 1, end: rawLines.length - (rawLines[rawLines.length - 1] === "" ? 1 : 0), lines: [] }]
       : f.blocks;
     blocks.forEach(function (b) {
-      if (isRaw && b.end - b.start < 1) return;
+      if (b.end < b.start) return;
       var block = document.createElement("div");
       block.className = "block";
 
@@ -313,7 +358,7 @@
       block.appendChild(header);
 
       var expByLine = {};
-      (b.lines || []).forEach(function (ln) { expByLine[ln.n] = ln[key]; });
+      (b.lines || []).forEach(function (ln) { expByLine[ln.n] = ln; });
 
       for (var n = b.start; n <= b.end; n++) {
         var row = document.createElement("div");
@@ -333,14 +378,15 @@
 
         var expCell = document.createElement("div");
         expCell.className = "exp-cell";
-        var exp = expByLine[n] || "";
-        if (exp) expCell.innerHTML = renderMarkdownLite(exp);
-        // Mirror the code's indentation so the right pane reads like
-        // natural-language pseudocode with the same nesting structure.
-        var raw = rawLines[idx] || "";
-        var spaces = (raw.match(/^ */) || [""])[0].length;
-        var level = Math.min(Math.floor(spaces / 4), 10);
-        expCell.style.paddingLeft = (20 + level * 18) + "px";
+        const explanation = expByLine[n];
+        if (explanation) {
+          if (explanation.end > n) {
+            expCell.append(evidence(f.path, n, explanation.end, "L" + n + "–" + explanation.end));
+          }
+          const words = el("span");
+          words.innerHTML = renderMarkdownLite(explanation[key]);
+          expCell.append(words);
+        }
 
         row.appendChild(codeCell);
         row.appendChild(expCell);
@@ -366,7 +412,7 @@
       $("crumb").textContent = t("overviewCrumb");
       renderOverview();
     } else {
-      renderFile();
+      followLocation();
     }
   }
 
@@ -542,7 +588,11 @@
   // ---------- wire up ----------
 
   $("sidebar-toggle").onclick = function () { $("sidebar").classList.toggle("collapsed"); };
-  $("overview-btn").onclick = showOverview;
+  $("overview-btn").onclick = function () {
+    navigate("#overview");
+    if (matchMedia("(max-width: 900px)").matches) $("sidebar").classList.add("collapsed");
+  };
+  window.addEventListener("hashchange", followLocation);
   $("lang-toggle").onclick = function () {
     state.lang = state.lang === "zh" ? "en" : "zh";
     applyLang();
@@ -570,7 +620,9 @@
   });
 
   applyFontSize();
-  renderTree();
+  if (matchMedia("(max-width: 900px)").matches) $("sidebar").classList.add("collapsed");
+  state.view = "overview";
   applyLang();
+  followLocation();
   checkServer();
 })();

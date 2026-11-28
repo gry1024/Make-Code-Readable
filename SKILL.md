@@ -1,119 +1,72 @@
 ---
 name: make-code-readable
-description: 把一个 GitHub 仓库或本地目录变成可交互的双栏代码阅读页面（左栏源代码、右栏自然语言伪代码式的逐行解释，中英双语），产出自包含 HTML 或本地服务。当用户想"读懂这个仓库"、"给这个仓库生成代码讲解"、"做一个代码阅读页面"时使用。
+description: 把本地或 GitHub 仓库做成可离线阅读的双语代码教程。适用于想读懂项目架构、跟踪调用和数据流、从图解跳到源码、逐段对照代码学习的请求。
 ---
 
-# Make-Code-Readable
+# Make Code Readable
 
-你（Agent）就是注释生成器——不需要任何外部 API Key。你的任务是阅读目标仓库，按本文件约定的 JSON schema 为每个源文件生成「段落总结 + 自然语言伪代码式的逐行解释」，然后调用构建脚本生成阅读页面。
+为读者设计一条从“这个系统解决什么问题”走到“我能追踪一次真实执行”的学习路径。交付一个自包含的 `reader.html`。你负责阅读源码和撰写中英两套解释，构建工具负责验证、连线和渲染。
 
-## 核心写作风格（最重要，先读这个）
+## 先读通一条执行路径
 
-右栏不是"评注"，而是**用自然语言重写的代码（伪代码）**。用户读右栏时，应该像读代码一样、按同样的逻辑顺序理解程序，只是换成了人话。
+1. 读 README、入口、一个实际调用方和相关实现。选择一个具体输入，记下跨文件传递的对象、形状或状态变化，直至可观察的输出。核对训练与推理、初始化与请求处理、失败与重试等不同路径。
+2. 从这条路径抽取读者必须先理解的概念。以读者的问题为章节标题。先讲最小可运行例子，再加入分支、策略与细节。学习顺序可以与运行顺序不同。
+3. 在 `.mcr/structure.json` 写教程。每章用一个例子解释输入、机制和结果，给出一个或多个可验证的源码位置。边说明具体传递物或触发条件。独立工具可以单独成章。逐一从调用方核对边的方向。大仓库按子系统选取主线，把其他文件放在文件索引中。
+4. 用 `python -m mcr.scan <repo>` 建分批清单，`--next` 查看待办。按用户指定的文件范围逐批覆盖；查看清单中的跳过项。每批处理并验证后在 manifest 标记 done。源文件改动后更新受影响的行号和讲解，再重新构建。
 
-### 每行解释 = 该行代码的自然语言直译
+以下模块命令从本 skill 的根目录运行；其他工作目录可将 skill 根目录加入 `PYTHONPATH`。项目路径作为参数传入。
 
-保留代码的控制结构（条件、循环、赋值、调用、返回），用自然语言表达操作本身。**不要**写"这一行是……"、"这一行用于……"、"这一行定义了……"这类散文式评注。
+## 教程和架构图
 
-示例（Python）：
-
-| 代码 | 右栏解释（zh） |
-|---|---|
-| `for attempt in range(retries + 1):` | 循环 `attempt` 从 0 到 `retries`（含），每次 +1 |
-| `if not resp.ok: raise ...` | 若 响应非 2xx → 抛出 HTTP 状态错误 |
-| `self._seq += 1` | `seq` 序号 +1 |
-| `timer = setTimeout(..., wait)` | 启动 `wait` 毫秒定时器，到点才真正执行 `fn` |
-| `return () => { stopped = true }` | 返回停止函数：调用它 → `stopped` 置真，轮询终止 |
-| `with self._lock:` | 进入锁保护区 { |
-| `}` | } 结束 if 块 |
-
-规则：
-- **每个非空代码行都必须有自己的解释条目**，包括单独的 `{`、`}`、`)`——闭合行用「} 结束 xx 块」说明关闭的是什么。空行可跳过（页面自动留空对齐）。`schema.py` 会强制检查，任何非空行缺解释都会报错。
-- 控制流用「若 … → …」「循环 …」「… 时 → …」的句式；多分支用「若 A → …；否则 → …」。
-- 标识符、函数名、字面量用反引号包成行内代码（页面会高亮渲染）；支持 `**加粗**` 和换行（`\n`）。
-- 在直译之后，如有关键的"为什么"（设计意图、坑、副作用），用一句简短补充，以「→ 因为…」或「（…）」收尾；没有就不加，不硬凑。
-- 解释长度与代码复杂度匹配：简单行几个字即可，复杂行最多两句。右栏会按代码缩进同步缩进，不要在文本里再加空格缩进。
-- `summary_zh` 是宏观注释：一句话（20–40 字）说清整段的职责与思路，允许比逐行更抽象。
-
-## 分批生成策略（大仓库必用）
-
-不要试图一次注释整个仓库。用扫描工具生成批次清单，逐批推进、可随时中断续跑：
-
-1. **扫描分批**：
-   ```bash
-   python <skill_dir>/mcr/scan.py <repo_path>
-   ```
-   产物 `<repo>/.mcr/manifest.json`：自动跳过 `.git`/`node_modules`/锁文件/minified/二进制，>2000 行的文件列入 `oversized_skipped`；按「入口文件 > README 提及 > 目录深度浅 > 文件小」排序，切成若干批（默认每批 ≤5 文件且 ≤1200 行）。
-2. **逐批处理**：`python <skill_dir>/mcr/scan.py <repo_path> --next` 查看下一批待办文件。每批内逐文件生成注释 JSON。
-3. **单文件即时校验**：每写完一个文件的 JSON，立即校验（见下文），通过后在 manifest 中把该文件 `status` 改为 `"done"`，失败改 `"failed"` 并记录原因。中断后重跑时跳过所有 `"done"`。
-4. **每批结束构建预览**：注释目录是增量累积的，随时可 build，已完成的文件立即可读。
-5. **大文件内部再分块**：单文件超过约 150 行时，按函数/类分多次生成，逐次追加到该文件的 `blocks` 数组（保持行号升序不重叠），全部写完后一次性校验。
-
-## 注释 JSON Schema（严格遵守）
-
-每个源文件一个 JSON，写入 `<repo>/.mcr/annotations/`，文件名把路径中的 `/` 换成 `__`，如 `src__main.py.json`：
+`structure.json` 的最小示例；完整的分支和回路见 [示例教程](examples/demo-project/.mcr/structure.json)。
 
 ```json
 {
-  "file": "src/main.py",
-  "language": "python",
-  "note_zh": "可选，文件级备注",
-  "note_en": "optional file-level note",
-  "blocks": [
-    {
-      "start": 1,
-      "end": 12,
-      "summary_zh": "一句话概括这段代码的职责与思路",
-      "summary_en": "One-line summary of this block's responsibility and approach",
-      "lines": [
-        {"n": 1, "zh": "该行代码的自然语言直译（中文）", "en": "natural-language pseudocode of this line (English)"}
-      ]
-    }
-  ]
+  "repo_zh": "一次提交如何交给后台线程，并在失败后重试？",
+  "repo_en": "How does a submission reach a worker and get retried on failure?",
+  "dirs": {},
+  "files": {"task_queue.py": {"zh": "调度和执行后台任务", "en": "Schedules and runs background jobs"}},
+  "chapters": [{
+    "id": "submit",
+    "title": {"zh": "两个任务同时到期，先执行谁？", "en": "How are tied deadlines ordered?"},
+    "body": {"zh": "优先队列先比较到期时间。到期时间相同时，锁内分配的序号决定顺序，队列无需比较函数对象。", "en": "Entries sort by deadline. A sequence number assigned under a lock breaks ties before the queue ever compares callables."},
+    "refs": [{"file":"task_queue.py","start":40,"end":44,"zh":"检查锁和入队顺序","en":"Inspect locking and enqueue order"}]
+  }],
+  "edges": []
 }
 ```
 
-- `file` 必须与仓库内相对路径**完全一致**；`language` 用 highlight.js 的语言名（`python`、`javascript`、`typescript`、`go`、`rust`、`java`、`c`、`cpp`、`bash`、`json`、`yaml`、`markdown` 等）。
-- `blocks` 按行号升序、不重叠地覆盖整个文件（1-based 闭区间），空行也必须落在某个 block 范围内。
-- 分块粒度：按函数 / 类 / 逻辑段落切分，每块 3–40 行为宜。
-- 中英文语义对等（不是逐字翻译），都遵循上面的伪代码风格。
+`chapters` 数组给出教学顺序。`edges` 中每项含 `from` 和 `to` 两个章节 ID，以及 `zh` 和 `en` 两种关系说明。每个链接使用仓库相对路径与 1-based 闭区间。锚点尽量落在实现决策的几行；需要串起接口时，把调用方和被调用方列为两条证据。
 
-## 仓库宏观结构解析（structure.json）
+## 点进文件后，先回答它在系统里负责什么
 
-除了逐文件注释，还要生成一份 `<repo>/.mcr/structure.json`，驱动阅读页的「仓库总览」视图（左侧 IDE 目录树自动包含全仓库文件，无需配置）：
+每个源文件对应 `.mcr/annotations/<path>.json`，路径中的斜线换成 `__`。用 `note_zh` 和 `note_en` 交代谁调用它、处理的对象及主要输出。用 `symbols` 列出类、函数和关键方法，写明分工，必要时点出一个容易混淆的边界。Python 文件构建时也会提取定义位置；新写教程时，为读者撰写职责说明。其他语言按实际声明填写。配置文件用文件导读讲清主要配置组及读取方。
+
+文件实例见 [Python 任务队列](examples/demo-project/.mcr/annotations/task_queue.py.json) 和 [JavaScript 客户端](examples/demo-project/.mcr/annotations/frontend.js.json)。符号条目形如：
 
 ```json
-{
-  "repo_zh": "一段话：这个仓库是什么、由哪几大部分组成、核心数据流是什么",
-  "repo_en": "one paragraph: what this repo is, its main parts, the core data flow",
-  "dirs": {
-    "src": {"zh": "一句话说明该目录职责", "en": "one-line purpose of this directory"},
-    "src/core": {"zh": "...", "en": "..."}
-  },
-  "files": {
-    "src/main.py": {"zh": "一句话说明该文件职责", "en": "one-line purpose of this file"}
-  }
-}
+{"name":"TaskQueue.submit","start":38,"end":44,"zh":"把函数和参数包装成带到期时间的队列条目。","en":"Wraps the invocation in a queue entry with a due time."}
 ```
 
-- 先读 README + 浏览目录树再写 `repo_zh/repo_en`；`dirs` 覆盖所有一级目录与核心二级目录；`files` 至少覆盖已注释文件与入口文件。
-- 写宏观解析要「有观点」：说清模块之间怎么协作，而不是罗列目录名。
+## 右栏按含义对齐
 
-## 校验与构建
+保留原始源码、顺序和行号。每个 block 讲一个小问题，`summary_zh/en` 概括这个阶段的职责。`lines` 中用 `n` 指定起始行，连续几行共同完成一个动作时给出 `end`。有独立意义的一行单独解释。覆盖每个非空行，括号、多行参数和注释随所属操作归组，空行可以留白。
 
-```bash
-# 校验：行号越界、block 重叠/缺口、非空行缺解释都会报错
-python <skill_dir>/mcr/schema.py <repo>/.mcr/annotations <repo>
+写作时以刚才跟踪的具体输入为参照。告诉读者这一步利用了什么事实、数据从哪来、变成什么、下一步为何需要它。对于形状变换，指明每个关键维度在任务里的含义。区分代码明确保证的行为和你的推测。只有语法会影响理解时才解释语法。
 
-# 构建自包含 HTML
-python <skill_dir>/mcr/build.py <repo> --annotations <repo>/.mcr/annotations --out <repo>/reader.html
+例如 `self._seq += 1` 所在的三行可以共同解释为“锁内给这次提交领一个唯一序号。两个任务同时到期时用它打破平局。”再用下一条讲入队时为什么把序号放在任务前面。避免逐条复述 import、赋值、循环和闭括号，也不要用 AST 模板批量生成职责文字。中英文都要能独立读通。
+
+```json
+{"start":40,"end":42,"summary_zh":"同一到期时间如何排序","summary_en":"Breaking ties between deadlines","lines":[{"n":40,"end":42,"zh":"在锁内领取序号，同时提交的任务也会得到不同的排序键。","en":"Claim a sequence number under the lock so concurrent submitters receive distinct tie-breakers."}]}
 ```
 
-## 交付
+文件顶层需含 `file`、`language`、`blocks`。blocks 按行号递增，无重叠或缺口，覆盖整个文件。每个范围只解释一次。刷新旧阅读页时，要重新阅读原注释，将机械直译改写为按意图分组的解释，优先更新教程引用的实现；交代实际改写范围。
 
-- 默认交付：告诉用户双击 `reader.html` 即可离线阅读。
-- 划词提问（选中即自动解释，无需点击）需要本地服务：
-  ```bash
-  export MCR_API_KEY=...   # OpenAI 兼容接口
-  python <skill_dir>/mcr/serve.py <repo> --annotations <repo>/.mcr/annotations
-  ```
+## 构建与验收
+
+```sh
+python -m mcr.schema <repo>/.mcr/annotations <repo>
+python -m mcr.build <repo> --annotations <repo>/.mcr/annotations --out <repo>/reader.html
+```
+
+构建时验证章节、符号、目标文件和源码范围。打开离线 HTML，从首页选一章，点源码链接，确认高亮覆盖实际操作；返回同一章，再从文件导读点一个方法。切换中英文，检查两种语言的例子和跳转目标一致。对照扫描清单检查交付范围；说明仍未讲解的部分。选区追问可另外使用 `python -m mcr.serve <repo> --annotations <dir>` 和 `MCR_API_KEY`。
